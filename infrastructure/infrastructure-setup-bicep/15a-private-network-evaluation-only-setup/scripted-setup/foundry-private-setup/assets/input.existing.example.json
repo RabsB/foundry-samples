@@ -14,10 +14,10 @@
   "applicationInsights": { "mode": "none" },
   "privateNetworking": {
     "dnsZones": {
-      "privatelink.services.ai.azure.com": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/integration-example/providers/Microsoft.Network/privateDnsZones/privatelink.services.ai.azure.com", "linkVnet": true },
-      "privatelink.openai.azure.com": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/integration-example/providers/Microsoft.Network/privateDnsZones/privatelink.openai.azure.com", "linkVnet": true },
-      "privatelink.cognitiveservices.azure.com": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/integration-example/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com", "linkVnet": true },
-      "privatelink.blob.core.windows.net": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/integration-example/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net", "linkVnet": true }
+      "privatelink.services.ai.azure.com": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/dns-example/providers/Microsoft.Network/privateDnsZones/privatelink.services.ai.azure.com", "linkVnet": true },
+      "privatelink.openai.azure.com": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/dns-example/providers/Microsoft.Network/privateDnsZones/privatelink.openai.azure.com", "linkVnet": true },
+      "privatelink.cognitiveservices.azure.com": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/dns-example/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com", "linkVnet": true },
+      "privatelink.blob.core.windows.net": { "mode": "existing", "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/dns-example/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net", "linkVnet": true }
     }
   }
 }
