@@ -12,14 +12,13 @@ languages:
 
 # Microsoft Foundry: Evaluation-Only Setup with Network Isolation
 
-For a guided, plan-and-approve PowerShell setup that supports new resources or
-bringing your own account/project, network, storage and monitoring, see
-[scripted-setup](scripted-setup/README.md). The deployment
-entrypoint and template below are unchanged.
 
 
 > **NEW**
 > For support on deploying the right network isolation template, check out the [GitHub Copilot for Azure skill for private networking](https://github.com/microsoft/GitHub-Copilot-for-Azure/blob/main/plugin/skills/microsoft-foundry/resource/private-network/private-network.md) set-up!
+
+> **TIP**
+> To create this environment or bring your own account/project, network, storage, DNS or monitoring resources with a plan-and-approve setup, use the [Foundry private setup skill](foundry-private-setup/README.md). To check an existing project's setup, use the [VNet project setup diagnostic](vnet-project-setup-diagnostic/SKILL.md).
 
 > **IMPORTANT**
 > 

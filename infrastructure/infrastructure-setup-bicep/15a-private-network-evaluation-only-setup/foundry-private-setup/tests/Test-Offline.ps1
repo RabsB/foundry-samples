@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
-$skill = Join-Path $PSScriptRoot '..\foundry-private-setup'
+$skill = Join-Path $PSScriptRoot '..'
 $null = New-Item -ItemType Directory -Path $OutputDirectory -Force
 . (Join-Path $skill 'scripts\SetupEngine.ps1')
 $script:checks = 0

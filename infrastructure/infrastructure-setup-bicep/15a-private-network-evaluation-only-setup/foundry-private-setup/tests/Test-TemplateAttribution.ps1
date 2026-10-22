@@ -1,7 +1,7 @@
 #Requires -Version 7.2
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$OutputDirectory)
-. (Join-Path $PSScriptRoot '..\foundry-private-setup\scripts\Deployment.ps1')
+. (Join-Path $PSScriptRoot '..\scripts\Deployment.ps1')
 $script:proofChecks=0
 function Assert-Proof([bool]$Value,[string]$Message) {
     if(!$Value){throw "ATTRIBUTION ASSERTION: $Message"};$script:proofChecks++
@@ -9,7 +9,7 @@ function Assert-Proof([bool]$Value,[string]$Message) {
 $approvedDoc=Read-Json (Join-Path $PSScriptRoot 'fixtures\approved-bicep-network.json')
 $exportDoc=Read-Json (Join-Path $PSScriptRoot 'fixtures\actual-azure-export-network.json')
 $metadataFixture=Read-Json (Join-Path $PSScriptRoot 'fixtures\deployment-network-succeeded.json')
-$caseConfig=Read-SetupConfig (Join-Path $PSScriptRoot '..\foundry-private-setup\assets\input.no-monitoring.example.json')
+$caseConfig=Read-SetupConfig (Join-Path $PSScriptRoot '..\assets\input.no-monitoring.example.json')
 $requestValues=@{location=@{value='koreacentral'};config=@{value=$caseConfig.network}}
 $request=@{asset='network';scope=($metadataFixture.id -replace '/providers/Microsoft.Resources/deployments/[^/]+$','')
     resourceId=$metadataFixture.id;template=$approvedDoc;bicepGeneratorHash='13644102471240374280'

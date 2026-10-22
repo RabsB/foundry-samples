@@ -1,16 +1,27 @@
-# Scripted private-network evaluation setup
+# Foundry private setup (evaluation-only)
 
-A plan-and-approve PowerShell setup for a private-network Microsoft Foundry
-evaluation environment. One JSON input describes every component; each component
-is either **created** by the setup or **brought by you** (BYO, `mode: existing`).
-The script plans locally, asks for one approval, then deploys the bundled Bicep in
-dependency order with a what-if preview before every write.
+Sets up a private-network Microsoft Foundry environment for evaluation and
+data-generation from one JSON input. Every component is either **created** by the
+setup or **brought by you** (BYO, `mode: existing`), so the same tool covers a new
+environment and an existing account/project.
 
-The full agent/operator guide is [foundry-private-setup/SKILL.md](foundry-private-setup/SKILL.md).
-Detailed input rules are in [references/scenarios.md](foundry-private-setup/references/scenarios.md)
-and per-step control in [references/operations.md](foundry-private-setup/references/operations.md).
+The setup plans locally, asks you to approve the plan once, then deploys the bundled
+Bicep in dependency order with a what-if preview before every write. A stopped run
+resumes safely by rerunning the same command.
 
-## Prerequisites
+This folder is an agent skill. You can either:
+
+- **Use it with an AI agent:** add this folder unchanged to your agent's skills
+  directory (for GitHub Copilot, for example `.github/skills/foundry-private-setup`)
+  and ask it to set up a private Foundry evaluation environment. The agent follows
+  [SKILL.md](SKILL.md) and asks you before it approves the plan or confirms the
+  account-wide step.
+- **Run it yourself** with the commands below.
+
+Input rules are in [references/scenarios.md](references/scenarios.md); running or
+re-checking individual steps is in [references/operations.md](references/operations.md).
+
+## Before you start
 
 | Requirement | Notes |
 |---|---|
@@ -18,33 +29,31 @@ and per-step control in [references/operations.md](foundry-private-setup/referen
 | Azure CLI with Bicep | Signed in (`az login`) to the target tenant. Nothing is downloaded or installed by the script. |
 | Permissions | Read and deploy rights on every scope you select, plus `Microsoft.Authorization/roleAssignments/write` (for example Role Based Access Control Administrator) where the project identity is granted access. Contributor alone cannot create role assignments. |
 | Region | The account, project, VNet and created resources use one region (`location`). |
+| Time | About 30 minutes in total, with one planned pause for confirmation. |
 
-## Quick start
+## Run it yourself
 
-```powershell
-cd foundry-private-setup
-pwsh -NoProfile -File .\scripts\Setup.ps1 -Action Toolchain
-# copy and edit an example from .\assets, keep it outside the package folder
-pwsh -NoProfile -File .\scripts\Setup.ps1 -Action Plan -ConfigPath ..\..\my-input.json -OutputPath ..\..\plan.json
-# review the printed plan, then approve it by hash
-pwsh -NoProfile -File .\scripts\Setup.ps1 -Action Run -GraphPath ..\..\plan.json -StateDirectory ..\..\state -ApprovePlan <planHash>
-# the run pauses before agent network injection (an account-wide change); after confirming:
-pwsh -NoProfile -File .\scripts\Setup.ps1 -Action Run -GraphPath ..\..\plan.json -StateDirectory ..\..\state -ApprovePlan <planHash> -AcknowledgeAccountWideImpact
+Keep this folder unchanged and keep your input, plan and state next to it, not
+inside it. If files inside this folder change, Run refuses the plan.
+
+```text
+my-setup\
+  foundry-private-setup\   this folder, unchanged
+  input.json               your input (copy an example from foundry-private-setup\assets)
+  plan.json                written by Plan
+  state\                   written by Run
 ```
 
-Rerunning the same command resumes a stopped run without replaying completed writes.
+From `my-setup`:
 
-### Recovering from a stopped run
-
-- Keep `plan.json`, your input file and the state directory **outside** the extracted
-  package folder. If package files change, Run refuses and names the added, removed or
-  changed files; re-extract the package unchanged and run Plan again.
-- Transient Azure read failures are retried automatically. If one persists, the error
-  says the read changed nothing; fix the cause and rerun the same Run command.
-- After you fix the cause shown in a node's error, rerunning the same Run command retries
-  a Failed deployment once. Unconfirmed writes are reconciled first and never resubmitted.
-- If a private endpoint this setup created is left in a Failed state, the error prints the
-  exact `az network private-endpoint delete` command; delete it, then rerun the same command.
+```powershell
+pwsh -NoProfile -File .\foundry-private-setup\scripts\Setup.ps1 -Action Toolchain
+pwsh -NoProfile -File .\foundry-private-setup\scripts\Setup.ps1 -Action Plan -ConfigPath .\input.json -OutputPath .\plan.json
+# Review the printed plan, then approve it by its planHash:
+pwsh -NoProfile -File .\foundry-private-setup\scripts\Setup.ps1 -Action Run -GraphPath .\plan.json -StateDirectory .\state -ApprovePlan <planHash>
+# The run pauses before agent network injection (an account-wide change). After reviewing it:
+pwsh -NoProfile -File .\foundry-private-setup\scripts\Setup.ps1 -Action Run -GraphPath .\plan.json -StateDirectory .\state -ApprovePlan <planHash> -AcknowledgeAccountWideImpact
+```
 
 | Example input | Use when |
 |---|---|
@@ -52,6 +61,32 @@ Rerunning the same command resumes a stopped run without replaying completed wri
 | `assets/input.no-monitoring.example.json` | Everything new, no monitoring |
 | `assets/input.existing.example.json` | Existing account/project, network, storage and DNS zones |
 
+### What to expect
+
+1. **Plan** reads Azure, changes nothing, and prints every step with the exact
+   resources it may write (`writeScopes`) and a `planHash`. Check that every write
+   scope is a resource you expect the setup to touch before approving.
+2. **First Run** (about 20 minutes) completes everything up to agent network
+   injection and stops with status `AwaitingAccountWideConfirmation`.
+3. **Second Run** with `-AcknowledgeAccountWideImpact` (about 10 minutes) finishes
+   with status `Completed` and every step `Succeeded`.
+
+Each Run prints a JSON summary with the status of every step. Details, previews and
+any error for each step are kept in the state folder (`state\run.json`).
+
+### Recovering from a stopped run
+
+Rerunning the same Run command is always the first step. It never replays completed
+writes and never resubmits a write whose outcome is unconfirmed.
+
+- Transient Azure read failures are retried automatically. If one persists, the error
+  says the read changed nothing; fix the cause and rerun.
+- After you fix the cause shown in a step's error, rerunning retries a Failed
+  deployment once.
+- If a private endpoint this setup created is left in a Failed state, the error prints
+  the exact `az network private-endpoint delete` command; delete it, then rerun.
+- If Run says package files changed, it names the added, removed or changed files.
+  Restore this folder unchanged and run Plan again.
 ## What is mandatory, optional, and bring-your-own
 
 **Mandatory** components are always part of the setup: you either let the setup
@@ -112,18 +147,22 @@ private endpoint, DNS zone or AMPLS, add only that entry under `privateNetworkin
 | `workload.projectHost` | `requested` | `not-requested` skips the project capability host. |
 | `connectionSelection.storage` / `.monitoring` | exact names `dataset-storage` / `monitoring` | Reuse an existing connection with another name (existing account/project only). |
 
+## After setup
+
+Setup only configures resources. To check the result without running an
+evaluation, use the [VNet project setup diagnostic](../vnet-project-setup-diagnostic/SKILL.md)
+against the project. To prove runtime access, run an evaluation from a client that can
+reach the private endpoints, such as a VM in the VNet or a peered network.
 ## What the setup does not do
 
 - It does not create credentials, keys or SAS tokens, or lock down public access.
 - It does not delete, repair or clean up resources.
-- It does not run evaluations or prove runtime data access. To validate, run an
-  evaluation from a client that can reach the private endpoints (for example a VM
-  in the VNet or a peered network).
+- It does not run evaluations or prove runtime data access (see [After setup](#after-setup)).
 - It does not migrate identities, customer-managed keys, models or multiple projects.
 
 ## Tests
 
-Offline tests make no Azure calls. From this `scripted-setup` folder:
+Offline tests make no Azure calls. From this folder:
 
 ```powershell
 pwsh -NoProfile -File .\tests\Test-Offline.ps1 -OutputDirectory (Join-Path $HOME 'foundry-setup-tests')
