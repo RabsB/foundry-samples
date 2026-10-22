@@ -138,7 +138,8 @@ function New-SetupPlan($Config,$Options) {
     Add-Node 'Injection' 'Foundry' $injectDeps @($ids.Account,$ids.AgentSubnet) @{ operation = 'Injection' }
     Add-Node 'AccountHost' 'Foundry' @('Injection') @($ids.Account,$ids.AgentSubnet) @{ operation = 'AccountHost' }
     if ($Config.workload.projectHost -eq 'requested') { Add-Node 'ProjectHost' 'Foundry' @('AccountHost') @($ids.Account,$ids.Project) @{ operation = 'ProjectHost' } }
-    $plan = @{ schemaVersion = '1.0'; config = $Config; options = $Options; packageHash = (Get-PackageHash); nodes = @($nodes.ToArray()) }
+    $packageFiles = Get-PackageFileHashes
+    $plan = @{ schemaVersion = '1.0'; config = $Config; options = $Options; packageHash = (Get-Digest $packageFiles); packageFiles = $packageFiles; nodes = @($nodes.ToArray()) }
     $plan.planHash = Get-Digest $plan
     return $plan
 }
@@ -146,7 +147,11 @@ function Assert-SetupPlan($Plan) {
     $null = Assert-SetupConfig $Plan.config
     $null = Assert-IntegrationOptions $Plan.options $Plan.config
     $copy = Copy-Data $Plan; $copy.Remove('planHash')
-    if ((Get-Digest $copy) -cne $Plan.planHash -or $Plan.packageHash -cne (Get-PackageHash)) { throw 'Setup plan/package changed; generate a fresh plan.' }
+    if ((Get-Digest $copy) -cne $Plan.planHash) { throw 'The plan file was edited after Plan generated it. Run Plan again; never edit plan.json by hand.' }
+    if ($Plan.packageHash -cne (Get-PackageHash)) {
+        $changes = if ($Plan.Contains('packageFiles')) { Get-PackageChangeSummary $Plan.packageFiles } else { '' }
+        throw "Package files differ from when this plan was generated$(if ($changes) { " ($changes)" }). Keep plan.json and the state directory outside the extracted package folder, re-extract the package unchanged if needed, then run Plan again."
+    }
     $expected = New-SetupPlan $Plan.config $Plan.options
     if ($expected.planHash -cne $Plan.planHash) { throw 'Only the deterministic generated setup DAG is supported.' }
 }

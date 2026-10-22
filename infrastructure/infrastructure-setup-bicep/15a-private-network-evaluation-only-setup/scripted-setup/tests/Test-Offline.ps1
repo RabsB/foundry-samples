@@ -207,6 +207,67 @@ $waited=Wait-SetupResource '/x' 30 0
 Check ($waited.properties.provisioningState -eq 'Succeeded' -and $script:armCalls -eq 2) 'Read-back retries a CLI failure with no HTTP status'
 function Invoke-SetupArm { param($Method,$Id); @{Code=403;ErrorCode='AuthorizationFailed'} }
 Reject {Wait-SetupResource '/x' 30 0} 'Read-back still fails fast on authorization errors'
+$script:SetupReadRetrySeconds=0;$script:armCalls=0
+function Invoke-SetupArm { param($Method,$Id); $script:armCalls++; if($script:armCalls -lt 3){@{Code=0;ErrorCode='CliFailure';Detail='ERROR: connection reset'}}else{@{Code=200;Data=@{ok=$true}}} }
+Check ((Get-SetupResource '/x').ok -and $script:armCalls -eq 3) 'Read-only GET retries a transient CLI failure'
+function Invoke-SetupArm { param($Method,$Id); $script:armCalls++; @{Code=0;ErrorCode='CliFailure';Detail='ERROR: connection reset'} }
+$script:armCalls=0;$readError='';try{$null=Get-SetupResource '/x'}catch{$readError=$_.Exception.Message}
+Check ($script:armCalls -eq 3 -and $readError -match 'connection reset' -and $readError -match 'changed nothing' -and $readError -match 'rerun the same Run command') 'Persistent read failure names the CLI detail and the safe recovery'
+function Invoke-SetupArm { param($Method,$Id); $script:armCalls++; @{Code=403;ErrorCode='AuthorizationFailed'} }
+$script:armCalls=0;Reject {Get-SetupResource '/x'} 'Authorization read failure surfaces'
+Check ($script:armCalls -eq 1) 'Authorization read failure is not retried'
+$detail=Get-SetupErrorDetail "WARNING: noise`nERROR: Bad request Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.payload.sig token=abc123&x=1"
+Check ($detail -match '^ERROR: Bad request' -and $detail -notmatch 'eyJhbGci|abc123') 'CLI detail picks the error line and redacts token-like values'
+Check ((Get-SetupErrorDetail '') -match 'no error text' -and (Get-SetupErrorDetail ('ERROR: '+('x'*400))).Length -le 303) 'Empty and long CLI details are bounded'
+
+$failWorker = @'
+param($Root,$Graph,$Node,$Mode,$Directory,$Approval,$Ack)
+$parent=Split-Path $Directory
+Add-Content (Join-Path $parent 'calls.log') "$Mode $($Node.id)"
+if($Mode -eq 'Preview'){return @{node=$Node.id;state='PreviewReady';previewPath='x';approvalHash='h'}}
+$flag=Join-Path $parent "fail-$($Node.id).flag"
+if(Test-Path $flag){ $left=[int](Get-Content $flag); if($left -le 1){Remove-Item $flag}else{Set-Content $flag ($left-1)}; return @{node=$Node.id;state='Failed';nextAction='InspectConfirmedFailure'} }
+@{node=$Node.id;state='Succeeded'}
+'@
+Check (($graph.nodes|Where-Object id -eq 'Storage').kind -eq 'Deployment') 'Fixture Storage node is a deployment'
+$failDir=Join-Path $OutputDirectory 'plan-run-failed'
+$null=New-Item -ItemType Directory $failDir -Force;Set-Content (Join-Path $failDir 'fail-Storage.flag') '2'
+$failedRun=Invoke-SetupRun $graph $failDir $graph.planHash $true 1 $failWorker
+Check ($failedRun.status -eq 'Stopped' -and $failedRun.nodes.Storage -eq 'Failed' -and $failedRun.reason -match 'retry Failed deployments once') 'Confirmed Failed deployment stops the run with retry guidance'
+$failedAgain=Invoke-SetupRun $graph $failDir $graph.planHash $true 1 $failWorker
+$failLog=@(Get-Content (Join-Path $failDir 'calls.log'))
+Check ($failedAgain.status -eq 'Stopped' -and @($failLog|Where-Object {$_ -ceq 'Apply Storage'}).Count -eq 2) 'Rerun retries a Failed deployment exactly once, then stops again'
+$recovered=Invoke-SetupRun $graph $failDir $graph.planHash $true 1 $failWorker
+$failLog=@(Get-Content (Join-Path $failDir 'calls.log'))
+Check ($recovered.status -eq 'Completed' -and @($failLog|Where-Object {$_ -ceq 'Apply Storage'}).Count -eq 3 -and @($failLog|Where-Object {$_ -ceq 'Apply ResourceGroup'}).Count -eq 1) 'Retry after a fixed cause completes without repeating Succeeded nodes'
+
+$ownDir=Join-Path $OutputDirectory 'owned-endpoint'
+$ownedPe='/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Network/privateEndpoints/pe-account'
+$ownedZone='/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net'
+Write-Json (Join-Path $ownDir 'op1.preview.json') @{kind='Deployment';operationId='op1';preview=@(@{resourceId=$ownedPe;changeType='Create'},@{resourceId=$ownedZone;changeType='Create'})}
+Write-Json (Join-Path $ownDir 'op1.attempt.json') @{operationId='op1';state='Failed';submissionStartedAt=1}
+Write-Json (Join-Path $ownDir 'op2.preview.json') @{kind='Deployment';operationId='op2';preview=@(@{resourceId=($ownedPe+'-other');changeType='Create'})}
+Write-Json (Join-Path $ownDir 'op2.attempt.json') @{operationId='op2';state='NotSubmitted'}
+$owned=@(Get-PriorFailedCreates $ownDir)
+Check ($ownedPe -in $owned -and $ownedZone -in $owned -and ($ownedPe+'-other') -notin $owned) 'Only resources planned by a submitted, confirmed-Failed attempt count as setup-created'
+$script:SetupStateDirectory=$ownDir
+$failedPeMessage=Get-ExistingEndpointMessage @{properties=@{provisioningState='Failed'}} $ownedPe
+Check ($failedPeMessage -match 'earlier failed attempt' -and $failedPeMessage -match 'az network private-endpoint delete --resource-group rg --name pe-account' -and $failedPeMessage -match 'rerun the same Run command') 'Setup-created Failed endpoint gets exact delete-then-rerun guidance'
+$okPeMessage=Get-ExistingEndpointMessage @{properties=@{provisioningState='Succeeded'}} $ownedPe
+Check ($okPeMessage -match 'state: Succeeded' -and $okPeMessage -match 'inspect it') 'Setup-created non-Failed endpoint is inspected, never overwritten'
+$script:SetupStateDirectory=Join-Path $OutputDirectory 'owned-endpoint-missing'
+$customerPeMessage=Get-ExistingEndpointMessage @{properties=@{provisioningState='Failed'}} $ownedPe
+Check ($customerPeMessage -match 'not created by this setup' -and $customerPeMessage -notmatch 'delete --resource-group') 'Same-name endpoint without setup evidence is never treated as setup-created'
+$script:SetupStateDirectory=''
+
+$changedPlan=Copy-Data $graph;$changedPlan.packageHash='0'*64
+$changedPlan.packageFiles.Remove('SKILL.md');$changedPlan.packageFiles['scripts/Setup.ps1']='0'*64;$changedPlan.packageFiles['plan.json']='0'*64
+$copy=Copy-Data $changedPlan;$copy.Remove('planHash');$changedPlan.planHash=Get-Digest $copy
+$packageError='';try{Assert-SetupPlan $changedPlan}catch{$packageError=$_.Exception.Message}
+Check ($packageError -match 'added: SKILL\.md' -and $packageError -match 'removed: plan\.json' -and $packageError -match 'changed: scripts/Setup\.ps1' -and $packageError -match 'outside the extracted package folder') 'Package change names the files and where plan/state belong'
+$editedPlan=Copy-Data $graph;$editedPlan.nodes[0].budgetSeconds=1
+$editError='';try{Assert-SetupPlan $editedPlan}catch{$editError=$_.Exception.Message}
+Check ($editError -match 'edited after Plan generated it') 'Hand-edited plan is reported as an edit, not a package change'
 
 $script:reads=0;$script:writes=@();$script:mode='Success';$script:resources=@{};$script:collections=@{}
 $ids=Get-SetupIds $config

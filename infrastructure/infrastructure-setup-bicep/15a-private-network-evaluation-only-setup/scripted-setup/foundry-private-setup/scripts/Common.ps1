@@ -35,13 +35,28 @@ function Write-Json($Path, $Value) {
         }
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp } }
 }
-function Get-PackageHash {
+function Get-PackageFileHashes {
     $root = Split-Path $PSScriptRoot
     $hashes = @{}
     foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -File)) {
         $hashes[(ConvertTo-PackagePath ([IO.Path]::GetRelativePath($root,$file.FullName)))] = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-    Get-Digest $hashes
+    return $hashes
+}
+function Get-PackageHash { Get-Digest (Get-PackageFileHashes) }
+function Get-PackageChangeSummary($Recorded) {
+    $current = Get-PackageFileHashes
+    $added = @($current.Keys | Where-Object { !$Recorded.Contains($_) } | Sort-Object)
+    $removed = @($Recorded.Keys | Where-Object { !$current.Contains($_) } | Sort-Object)
+    $changed = @($current.Keys | Where-Object { $Recorded.Contains($_) -and $Recorded[$_] -cne $current[$_] } | Sort-Object)
+    $parts = @()
+    foreach ($entry in @(@('added',$added),@('removed',$removed),@('changed',$changed))) {
+        if ($entry[1].Count) {
+            $shown = @($entry[1] | Select-Object -First 5) -join ', '
+            $parts += "$($entry[0]): $shown$(if ($entry[1].Count -gt 5) { " (+$($entry[1].Count - 5) more)" })"
+        }
+    }
+    return $parts -join '; '
 }
 function ConvertTo-PackagePath([string]$Path) { return $Path.Replace('\','/') }
 function Start-Phase([string]$Name) {

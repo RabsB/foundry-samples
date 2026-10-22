@@ -82,6 +82,7 @@ function Invoke-SetupNode($Graph,$Node,[string]$Mode,[string]$Directory,$Approva
     $clock = Start-Phase 'NodeWall'
     $record = @{ node = $Node.id; mode = $Mode; state = 'NotSubmitted'; timings = @(); nextAction = 'FreshScopedPreview' }
     $plan = $null; $attemptPath = ''
+    $script:SetupStateDirectory = $Directory
     try {
         $tools = Get-SetupToolchain
         $record.toolchain = @{ powerShell = $PSVersionTable.PSVersion.ToString(); python = $tools.versions.python
@@ -267,11 +268,17 @@ function Invoke-SetupRun {
             $reconciled = Invoke-SetupSelection $Graph @($pendingReconcile.Keys) 'Reconcile' $Directory $pendingReconcile $Concurrency $AcknowledgeAccountWideImpact $WorkerScript
             foreach ($id in $reconciled.nodes.Keys) { Set-NodeResult $id $reconciled.nodes[$id] 'Reconcile' }
         }
+        # Resume: a deployment that Azure confirmed as Failed gets one fresh, fully guarded preview per rerun.
+        foreach ($node in @($Graph.nodes | Where-Object { $_.kind -in @('Deployment','Connections') })) {
+            if ($run.nodes.Contains($node.id) -and $run.nodes[$node.id].state -eq 'Failed') {
+                Set-NodeResult $node.id @{ state = 'NotSubmitted'; nextAction = 'FreshScopedPreview' } 'RetryAfterConfirmedFailure'
+            }
+        }
         while ($true) {
             $states = @{}; foreach ($id in $run.nodes.Keys) { $states[$id] = $run.nodes[$id].state }
             $stuck = @($Graph.nodes | Where-Object { $states[$_.id] -and $states[$_.id] -notin @('Succeeded','NotSubmitted','PreviewReady') })
             if ($stuck.Count) {
-                $status = 'Stopped'; $reason = "Node(s) need attention: $((@($stuck.id) | Sort-Object) -join ', '). Rerun the same command to reconcile unconfirmed outcomes; inspect Failed nodes."
+                $status = 'Stopped'; $reason = "Node(s) need attention: $((@($stuck.id) | Sort-Object) -join ', '). Rerun the same command to reconcile unconfirmed outcomes and retry Failed deployments once after you address the cause in each node's error."
                 break
             }
             $remaining = @($Graph.nodes | Where-Object { $states[$_.id] -ne 'Succeeded' })
@@ -319,7 +326,7 @@ function Invoke-SetupRun {
                     Save-Run; continue
                 }
                 if ($notDone.Count) {
-                    $status = 'Stopped'; $reason = "Apply did not complete for: $($notDone -join ', '). Rerun the same command to resume; it never resubmits an unconfirmed attempt."
+                    $status = 'Stopped'; $reason = "Apply did not complete for: $($notDone -join ', '). Rerun the same command to resume; it never resubmits an unconfirmed attempt, and it will retry Failed deployments once after you address the cause in each node's error."
                     break
                 }
             }

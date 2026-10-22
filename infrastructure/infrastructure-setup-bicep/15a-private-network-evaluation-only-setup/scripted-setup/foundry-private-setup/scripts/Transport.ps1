@@ -16,6 +16,19 @@ function Get-SetupErrorStatus {
     return 0
 }
 
+function Get-SetupErrorDetail {
+    param([string]$Text)
+    $lines = @(($Text -split "`r?`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if (!$lines.Count) { return 'Azure CLI returned no error text' }
+    $errors = @($lines | Where-Object { $_ -match '^ERROR:' })
+    $detail = if ($errors.Count) { $errors[0] } else { $lines[0] }
+    $detail = $detail -replace '(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+', '$1<redacted>' `
+        -replace 'eyJ[A-Za-z0-9._-]{10,}', '<redacted>' `
+        -replace '(?i)((?:sig|key|token|secret|password)=)[^&\s"'']+', '$1<redacted>'
+    if ($detail.Length -gt 300) { $detail = $detail.Substring(0, 300) + '...' }
+    return $detail
+}
+
 function Invoke-SetupCli {
     param([string[]]$Arguments,[scriptblock]$OnStart)
     $tools = Get-SetupToolchain
@@ -23,7 +36,8 @@ function Invoke-SetupCli {
     $result = Invoke-NativeProcess (New-CleanProcess $tools.executable $args) $tools.manifest.budgets.nativeSeconds $OnStart
     if ($result.code -ne 0) {
         $errorCode = if ($result.stderr -match '"code"\s*:\s*"([a-zA-Z0-9_.-]{1,80})"') { $Matches[1] } else { 'CliFailure' }
-        return @{ Code = $(if ($result.code -eq 408) { 408 } else { Get-SetupErrorStatus $result.stderr }); Data = $null; ErrorCode = $errorCode }
+        return @{ Code = $(if ($result.code -eq 408) { 408 } else { Get-SetupErrorStatus $result.stderr }); Data = $null; ErrorCode = $errorCode
+            Detail = (Get-SetupErrorDetail $result.stderr) }
     }
     if ([string]::IsNullOrWhiteSpace($result.stdout)) { return @{ Code = 200; Data = @{} } }
     return @{ Code = 200; Data = (ConvertFrom-SetupJson $result.stdout) }
@@ -86,14 +100,22 @@ function Invoke-SetupArm {
 
 function Get-SetupResource {
     param([string]$Id, [switch]$Optional)
-    $result = Invoke-SetupArm GET $Id
+    # Read-only GETs retry transient failures (code 0 = the CLI produced no HTTP status).
+    for ($attempt = 1; ; $attempt++) {
+        $result = Invoke-SetupArm GET $Id
+        if ($result.Code -notin @(0, 408, 429, 500, 502, 503, 504) -or $attempt -ge $script:SetupReadAttempts) { break }
+        Start-Sleep -Seconds $script:SetupReadRetrySeconds
+    }
     if ($Optional -and $result.Code -eq 404) { return $null }
     if ($result.Code -ne 200) {
         $reason = if ($result.Contains('ErrorCode')) { $result.ErrorCode } else { 'ReadUnavailable' }
-        throw "ARM metadata unavailable ($($result.Code), $reason): $Id. Outcome is unresolved; no repair was attempted."
+        $detail = if ($result.Contains('Detail') -and $result.Detail) { " Detail: $($result.Detail)." } else { '' }
+        throw "ARM read failed ($($result.Code), $reason) after $attempt attempt(s): $Id.$detail This read changed nothing. Fix the cause if the detail names one (sign-in, permission, network), then rerun the same Run command; it reconciles any unconfirmed write before retrying."
     }
     return $result.Data
 }
+$script:SetupReadAttempts = 3
+$script:SetupReadRetrySeconds = 5
 
 function Get-SetupCollection {
     param([string]$Id)
@@ -118,7 +140,8 @@ function Wait-SetupResource {
         } elseif ($response.Code -notin @(0, 404, 408, 429, 500, 502, 503, 504)) {
             # Code 0 means the CLI produced no HTTP status (transient local/transport failure); read-only GETs retry until the deadline.
             $reason = if ($response.Contains('ErrorCode')) { $response.ErrorCode } else { 'ReadUnavailable' }
-            throw "Readback unresolved ($($response.Code), $reason) at $Id. No write was repeated."
+            $detail = if ($response.Contains('Detail') -and $response.Detail) { " Detail: $($response.Detail)." } else { '' }
+            throw "Readback unresolved ($($response.Code), $reason) at $Id.$detail No write was repeated."
         }
         if ($timer.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw "Incomplete: bounded readiness timeout at $Id. The write might still complete." }
         Start-Sleep -Seconds $PollSeconds

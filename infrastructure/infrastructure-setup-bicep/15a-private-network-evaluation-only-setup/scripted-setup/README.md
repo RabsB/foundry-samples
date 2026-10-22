@@ -34,6 +34,18 @@ pwsh -NoProfile -File .\scripts\Setup.ps1 -Action Run -GraphPath ..\..\plan.json
 
 Rerunning the same command resumes a stopped run without replaying completed writes.
 
+### Recovering from a stopped run
+
+- Keep `plan.json`, your input file and the state directory **outside** the extracted
+  package folder. If package files change, Run refuses and names the added, removed or
+  changed files; re-extract the package unchanged and run Plan again.
+- Transient Azure read failures are retried automatically. If one persists, the error
+  says the read changed nothing; fix the cause and rerun the same Run command.
+- After you fix the cause shown in a node's error, rerunning the same Run command retries
+  a Failed deployment once. Unconfirmed writes are reconciled first and never resubmitted.
+- If a private endpoint this setup created is left in a Failed state, the error prints the
+  exact `az network private-endpoint delete` command; delete it, then rerun the same command.
+
 | Example input | Use when |
 |---|---|
 | `assets/input.example.json` | Everything new, with private monitoring |

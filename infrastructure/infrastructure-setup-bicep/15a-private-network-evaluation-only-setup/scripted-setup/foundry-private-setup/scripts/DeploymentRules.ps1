@@ -68,7 +68,10 @@ function Assert-DeploymentParameters {
             }
             $peId = "$($ids.ResourceGroup)/providers/Microsoft.Network/privateEndpoints/$($values.peName)"
             Assert-Name $values.peName '^[a-zA-Z0-9][a-zA-Z0-9_.-]+$' 2 80
-            if ($values.deployEndpoint -and (Get-SetupResource $peId -Optional)) { throw 'Existing PE must not be PUT.' }
+            if ($values.deployEndpoint) {
+                $existingEndpoint = Get-SetupResource $peId -Optional
+                if ($existingEndpoint) { throw (Get-ExistingEndpointMessage $existingEndpoint $peId) }
+            }
             if ($values.deployEndpoint -and $values.existingEndpointResourceId) { throw 'New PE conflicts with an existing endpoint selection.' }
             if (!$values.deployEndpoint) {
                 $existingId = if ($values.existingEndpointResourceId) { $values.existingEndpointResourceId } else { $peId }
@@ -92,7 +95,8 @@ function Assert-DeploymentParameters {
                 $null = Assert-ResourceId $zone.resourceId 'Microsoft.Network/privateDnsZones'
                 if ($zone.resourceId.Split('/')[-1] -ine $zone.name) { throw 'Zone name and exact ID differ.' }
                 if ($zone.deployZone -and $zone.resourceId -ine "$($ids.ResourceGroup)/providers/Microsoft.Network/privateDnsZones/$($zone.name)") { throw 'New zone scope differs from the selected RG.' }
-                if ($zone.deployZone -and (Get-SetupResource $zone.resourceId -Optional)) { throw 'Supplied/existing DNS zone must not be PUT.' }
+                if ($zone.deployZone -and (Get-SetupResource $zone.resourceId -Optional) -and
+                    $zone.resourceId -notin @(Get-PriorFailedCreates $script:SetupStateDirectory)) { throw "Private DNS zone $($zone.name) already exists and was not created by this setup; supply it as an existing zone instead." }
                 if (!$zone.deployZone -and !(Get-SetupResource $zone.resourceId -Optional)) { throw 'Referenced DNS zone is not observable.' }
                 if ($zone.deployLink -and !( $zone.resourceId -like "$($ids.ResourceGroup)/providers/Microsoft.Network/privateDnsZones/*")) { throw 'No implicit link writes to supplied DNS zones.' }
             }
@@ -101,4 +105,31 @@ function Assert-DeploymentParameters {
             throw 'Use monitor-connectivity to retain explicit AMPLS/association/PE dependency scope.'
         }
     }
+}
+# Resource IDs that an earlier, Azure-confirmed Failed deployment of this setup planned to create.
+function Get-PriorFailedCreates([string]$Directory) {
+    if (!$Directory -or !(Test-Path -LiteralPath $Directory)) { return @() }
+    $created = @()
+    foreach ($file in Get-ChildItem -LiteralPath $Directory -Filter '*.attempt.json' -File) {
+        $receipt = Read-Json $file.FullName
+        if ($receipt.state -ne 'Failed' -or !$receipt.Contains('submissionStartedAt')) { continue }
+        $previewPath = Join-Path $Directory "$($receipt.operationId).preview.json"
+        if (!(Test-Path -LiteralPath $previewPath)) { continue }
+        $preview = Read-Json $previewPath
+        if ($preview.kind -cne 'Deployment') { continue }
+        $created += @($preview.preview | Where-Object { $_.changeType -eq 'Create' } | ForEach-Object { $_.resourceId })
+    }
+    return $created
+}
+function Get-ExistingEndpointMessage($Endpoint,[string]$Id) {
+    $name = $Id.Split('/')[-1]; $group = $Id.Split('/')[4]
+    $state = if ($Endpoint.Contains('properties') -and $Endpoint.properties.Contains('provisioningState')) { [string]$Endpoint.properties.provisioningState } else { 'unknown' }
+    $command = "az network private-endpoint delete --resource-group $group --name $name"
+    if ($Id -in @(Get-PriorFailedCreates $script:SetupStateDirectory)) {
+        if ($state -eq 'Failed') {
+            return "Private endpoint '$name' was created by an earlier failed attempt of this setup and is in Failed state. The setup never deletes resources: delete it ($command), then rerun the same Run command."
+        }
+        return "Private endpoint '$name' was created by an earlier failed attempt of this setup (state: $state). The setup never overwrites an existing endpoint: inspect it, delete it if it is not needed ($command), then rerun the same Run command."
+    }
+    return "A private endpoint named '$name' already exists in the setup resource group and was not created by this setup. It is never overwritten: select it as an existing endpoint in the input, or remove it, then run Plan again."
 }
