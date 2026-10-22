@@ -14,7 +14,7 @@ languages:
 
 For a guided, plan-and-approve PowerShell setup that supports new resources or
 bringing your own account/project, network, storage and monitoring, see
-[scripted-setup](scripted-setup/foundry-private-setup/SKILL.md). The deployment
+[scripted-setup](scripted-setup/README.md). The deployment
 entrypoint and template below are unchanged.
 
 
