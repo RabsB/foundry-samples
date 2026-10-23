@@ -20,6 +20,16 @@
        Expect = @{ 'egress.routeTable' = 'CouldNotCheck:Blocking' } }
     @{ Name = 'egress-pe-address-unknown'; Mutate = { param($E) Add-DiagTestRouteTable $E @(New-DiagTestRoute 'default' '0.0.0.0/0' 'VirtualAppliance' '10.0.1.4'); Set-EvStatus $E (Get-TestIds).PeStorage 403 }
        Expect = @{ 'egress.routeTable@Storage' = 'CouldNotCheck:KnownLimit' }; Allow = @('egress.nextHopOwner') }
+    # Zone-group endpoints often have empty customDnsConfigs; the address must come from the zone group record sets.
+    @{ Name = 'egress-pe-address-from-zone-group'; Mutate = { param($E)
+            $ids = Get-TestIds
+            foreach ($pe in $ids.PeAccount, $ids.PeStorage) { (Get-EvData $E $pe).properties.customDnsConfigs = @() }
+            Add-DiagTestRouteTable $E @(New-DiagTestRoute 'default' '0.0.0.0/0' 'VirtualAppliance' '10.0.1.4') }
+       Expect = @{ 'egress.routeTable@Storage' = 'OK'; 'egress.routeTable@Foundry' = 'OK' }; Allow = @('egress.nextHopOwner') }
+    @{ Name = 'egress-zone-group-pe-route-none'; Mutate = { param($E)
+            (Get-EvData $E (Get-TestIds).PeStorage).properties.customDnsConfigs = @()
+            Add-DiagTestRouteTable $E @(New-DiagTestRoute 'drop-blob' '10.1.5.7/32' 'None') }
+       Expect = @{ 'egress.routeTable@Storage' = 'Problem:High' } }
     @{ Name = 'egress-subnet-unreadable'; Mutate = { param($E) Set-EvStatus $E (Get-TestIds).AgentSubnet 403 }
        Expect = @{ 'egress.routeTable' = 'CouldNotCheck:Blocking' } }
 

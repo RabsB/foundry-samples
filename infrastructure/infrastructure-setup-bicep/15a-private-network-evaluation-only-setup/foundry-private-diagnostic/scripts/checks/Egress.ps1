@@ -146,9 +146,11 @@ function Get-EgressPathTargets {
             $peEv = Get-Ev $Evidence $pe
             if (!$peEv.Ok) { continue }
             $peSubnet = $peEv.Data.properties.subnet.id
-            foreach ($cfg in @($peEv.Data.properties.customDnsConfigs | Where-Object { $_ -and $_.fqdn })) {
-                $ip = @($cfg.ipAddresses | Where-Object { $_ })[0]
-                if ($ip) { $peIps[$cfg.fqdn.ToLowerInvariant()] = @{ Ip = $ip; Pe = $pe; PeSubnet = $peSubnet } }
+            # Zone-group endpoints usually have empty customDnsConfigs, so include their record sets too.
+            $addresses = Get-DiagPeAddresses $Evidence $pe
+            foreach ($fqdn in $addresses.Keys) {
+                $ip = @($addresses[$fqdn] | Where-Object { $_ })[0]
+                if ($ip) { $peIps[$fqdn] = @{ Ip = $ip; Pe = $pe; PeSubnet = $peSubnet } }
             }
         }
     }
