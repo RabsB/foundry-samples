@@ -150,7 +150,7 @@ private endpoint, DNS zone or AMPLS, add only that entry under `privateNetworkin
 ## After setup
 
 Setup only configures resources. To check the result without running an
-evaluation, use the [VNet project setup diagnostic](../vnet-project-setup-diagnostic/SKILL.md)
+evaluation, run the read-only [Foundry private network diagnostic](../foundry-private-diagnostic/README.md)
 against the project. To prove runtime access, run an evaluation from a client that can
 reach the private endpoints, such as a VM in the VNet or a peered network.
 ## What the setup does not do

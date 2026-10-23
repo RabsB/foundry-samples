@@ -18,7 +18,7 @@ languages:
 > For support on deploying the right network isolation template, check out the [GitHub Copilot for Azure skill for private networking](https://github.com/microsoft/GitHub-Copilot-for-Azure/blob/main/plugin/skills/microsoft-foundry/resource/private-network/private-network.md) set-up!
 
 > **TIP**
-> To create this environment or bring your own account/project, network, storage, DNS or monitoring resources with a plan-and-approve setup, use the [Foundry private setup skill](foundry-private-setup/README.md). To check an existing project's setup, use the [VNet project setup diagnostic](vnet-project-setup-diagnostic/SKILL.md).
+> To create this environment or bring your own account/project, network, storage, DNS or monitoring resources with a plan-and-approve setup, use the [Foundry private setup skill](foundry-private-setup/README.md). If evaluations fail, run the read-only [Foundry private network diagnostic](foundry-private-diagnostic/README.md). It checks the project's network setup end to end, tells you what's wrong and who can fix it, and saves an evidence file you can send to support.
 
 > **IMPORTANT**
 > 
