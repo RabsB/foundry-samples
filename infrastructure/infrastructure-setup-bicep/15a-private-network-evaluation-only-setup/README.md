@@ -373,6 +373,8 @@ modules-network-secured/
 3. Validate role assignments
 4. Review network security groups
 
+To check all of these in one pass, run the read-only [Foundry private network diagnostic](foundry-private-diagnostic/README.md). It checks the project's network setup end to end, tells you what's wrong and who can fix it, and saves an evidence file you can send to support.
+
 ## References
 
 - [Configure private link for Microsoft Foundry](https://learn.microsoft.com/en-us/azure/ai-foundry/how-to/configure-private-link?tabs=azure-portal&pivots=fdp-project)
